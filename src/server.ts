@@ -6,6 +6,8 @@ import { scrapeQueue } from "./queue/queue";
 
 import "./queue/worker";
 import { JobStore } from "./store/job.store";
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 (async () => {

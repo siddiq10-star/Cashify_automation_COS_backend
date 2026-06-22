@@ -1,6 +1,9 @@
 import { google } from "googleapis";
 import * as path from "path";
 
+import dotenv from "dotenv";
+dotenv.config();
+
 export class GoogleSheetsService {
   private sheets: any;
   private spreadsheetId: string;
@@ -19,7 +22,8 @@ export class GoogleSheetsService {
     // =========================
     // YOUR SHEET ID
     // =========================
-    this.spreadsheetId = "1UJx7HmZokfl5z6nEdXEx1ub5O1Enj_uWyT3EstCszg4";
+    this.spreadsheetId =
+  process.env.GOOGLE_SHEET_ID || "";
   }
 
   // =========================================================
@@ -29,7 +33,7 @@ export class GoogleSheetsService {
     try {
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
-        range: "Sheet1!A:G",
+        range: "testA:G",
         valueInputOption: "USER_ENTERED",
         requestBody: {
           values: [row],
@@ -49,7 +53,7 @@ export class GoogleSheetsService {
     try {
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
-        range: "Sheet1!A:G",
+        range: "test!A:G",
         valueInputOption: "USER_ENTERED",
         requestBody: {
           values: rows,
@@ -69,25 +73,31 @@ export class GoogleSheetsService {
   try {
     const res = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: "Sheet1!A2:J",
+      range: "test!A2:N",
     });
 
     const rows = res.data.values || [];
 
-    return rows.map((row: any[], index: number) => ({
-      brand: row[0] || "",
-      model: row[1] || "",
-      variant: row[2] || "",
-      maxValue: row[3] || "",
-      below3: row[4] || "",
-      months3to6: row[5] || "",
-      months6to11: row[6] || "",
-      above11: row[7] || "",
-      status: row[8] || "",
-      lastUpdated: row[9] || "",
-      valueChanged: row[10] || "",
-      rowIndex: index + 2,
-    }));
+    return rows.map((row, index) => ({
+  city: row[0] || "",
+  brandImageUrl: row[1] || "",
+  imageUrl: row[2] || "",
+  category: row[3] || "",
+  productCode: row[4] || "",
+
+  brand: row[5] || "",
+  series: row[6] || "",
+  model: row[7] || "",
+  variant: row[8] || "",
+
+  maxValue: row[9] || "",
+  below3: row[10] || "",
+  months3to6: row[11] || "",
+  months6to11: row[12] || "",
+  above11: row[13] || "",
+
+  rowIndex: index + 2,
+}));
   } catch (error) {
     console.error("❌ readModels error:", error);
     return [];
@@ -100,7 +110,7 @@ export class GoogleSheetsService {
     try {
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `Sheet1!A${rowIndex}:K${rowIndex}`,
+        range: `test!A${rowIndex}:N${rowIndex}`,
         valueInputOption: "USER_ENTERED",
         requestBody: {
           values: [row],
@@ -111,10 +121,43 @@ export class GoogleSheetsService {
     }
   }
 
+
+
+  async updatePricingRow(
+  rowIndex: number,
+  maxValue: number,
+  below3: number,
+  mid3to6: number,
+  mid6to11: number,
+  above11: number
+) {
+  try {
+    await this.sheets.spreadsheets.values.update({
+      spreadsheetId: this.spreadsheetId,
+      range: `test!J${rowIndex}:N${rowIndex}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[
+          maxValue,
+          below3,
+          mid3to6,
+          mid6to11,
+          above11
+        ]]
+      }
+    });
+  } catch (error) {
+    console.error(
+      "❌ updatePricingRow error:",
+      error
+    );
+  }
+}
+
   // =========================================================
   // ➤ CLEAR SHEET (UTILITY)
   // =========================================================
-  async clearSheet(range: string = "Sheet1") {
+  async clearSheet(range: string = "test") {
     try {
       await this.sheets.spreadsheets.values.clear({
         spreadsheetId: this.spreadsheetId,

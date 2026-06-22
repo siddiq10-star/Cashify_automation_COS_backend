@@ -190,20 +190,28 @@ for (const currentVariant of variants) {
     
   if (requiredVariant) {
 
-  const sheetVariant =
-    requiredVariant
-      .replace(/[()]/g, "")
-      .trim();
+  const normalize = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace("gb", "");
 
-  const cashifyVariant =
+const sheetVariant =
+  normalize(requiredVariant);
+
+const cashifyVariant =
+  normalize(currentVariant.variant);
+
+if (
+  sheetVariant.includes(cashifyVariant)
+) {
+  console.log(
+    "✅ MATCHED VARIANT:",
     currentVariant.variant
-      .trim();
-
-  if (
-    !sheetVariant.includes(cashifyVariant)
-  ) {
-    continue;
-  }
+  );
+} else {
+  continue;
+}
 
   console.log(
     "✅ MATCHED VARIANT:",
@@ -460,50 +468,28 @@ const above11 =
     a => a.age.includes("Above 11")
   )?.difference ?? 0;
 
-  const rows =
-  await sheet.readModels();
-
-  const currentRow =
-  rows.find(
-    r => r.rowIndex === rowIndex
-  );
-
-  const previousMax =
-  Number(
-    currentRow?.maxValue || 0
-  );
-
-const valueChanged =
-  previousMax > 0 &&
-  previousMax !== maxValue
-    ? "🔴 CHANGED"
-    : "🟢 SAME";
-
 
 console.log(
   "AGE RESULTS:",
   JSON.stringify(ageResults, null, 2)
 );
-await sheet.updateRow(
+await sheet.updatePricingRow(
   rowIndex,
-  [
-    undefined,
-    model,
-    requiredVariant,
-
-    maxValue,
-
-    below3,
-    mid3to6,
-    mid6to11,
-    above11,
-
-    "Completed",
-    new Date().toLocaleString(),
-
-    valueChanged,
-  ]
+  maxValue,
+  below3,
+  mid3to6,
+  mid6to11,
+  above11
 );
+
+console.log("WRITING TO SHEET:", {
+  rowIndex,
+  maxValue,
+  below3,
+  mid3to6,
+  mid6to11,
+  above11,
+});
 
 console.log("🔥 GOOGLE SHEET UPDATE FINISHED");
 console.log(`✅ Sheet Updated Row ${rowIndex}`);

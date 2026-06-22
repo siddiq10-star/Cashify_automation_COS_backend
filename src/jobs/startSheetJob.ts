@@ -14,6 +14,9 @@ export const startSheetJob = async (
 
   const rows = await sheet.readModels();
 
+  console.log("FIRST ROW:");
+console.log(JSON.stringify(rows[0], null, 2));
+
   Logger.info(`Loaded ${rows.length} rows from sheet`);
 
   const validRows = rows.filter((r) => {
@@ -31,10 +34,12 @@ export const startSheetJob = async (
         row =>
           row.brand
             ?.trim()
-            .toLowerCase() ===
-          selectedBrand
-            .trim()
             .toLowerCase()
+            .includes(
+              selectedBrand
+                .trim()
+                .toLowerCase()
+            )
       )
     : validRows;
 
@@ -93,14 +98,14 @@ if (
 
   for (const row of pendingModels) {
     await scrapeQueue.add(
-      "scrape",
-      {
-        model: row.model,
-        variant: row.variant,
-        brand: row.brand,
-        rowIndex: row.rowIndex,
-        jobId,
-      },
+  "scrape",
+  {
+    model: `${row.brand} ${row.model}`.trim(),
+    variant: row.variant,
+    brand: row.brand,
+    rowIndex: row.rowIndex,
+    jobId,
+  },
       {
         attempts: 3,
         backoff: {
