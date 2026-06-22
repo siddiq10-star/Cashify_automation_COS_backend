@@ -132,20 +132,52 @@ export class GoogleSheetsService {
   above11: number
 ) {
   try {
+
+    // Read existing formula from J column
+    const existing = await this.sheets.spreadsheets.values.get({
+  spreadsheetId: this.spreadsheetId,
+  range: `test!J${rowIndex}`,
+  valueRenderOption: "FORMULA"
+});
+
+    const currentFormula =
+      existing.data.values?.[0]?.[0] || "";
+
+    let bonus = 0;
+
+    // Example:
+    // =111000+9000
+    const match =
+      String(currentFormula).match(/\+(\d+)/);
+
+    if (match) {
+      bonus = Number(match[1]);
+    }
+
+    const exact3to6 = maxValue - mid3to6;
+    const exact6to11 = maxValue - mid6to11;
+    const exactAbove11 = maxValue - above11;
+
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
       range: `test!J${rowIndex}:N${rowIndex}`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
         values: [[
-          maxValue,
-          below3,
-          mid3to6,
-          mid6to11,
-          above11
+          `=${maxValue}+${bonus}`,
+          0,
+          `=${exact3to6}-${maxValue}`,
+          `=${exact6to11}-${maxValue}`,
+          `=${exactAbove11}-${maxValue}`
         ]]
       }
     });
+
+    console.log("✅ Formula Row Updated", {
+      rowIndex,
+      bonus
+    });
+
   } catch (error) {
     console.error(
       "❌ updatePricingRow error:",
@@ -153,20 +185,4 @@ export class GoogleSheetsService {
     );
   }
 }
-
-  // =========================================================
-  // ➤ CLEAR SHEET (UTILITY)
-  // =========================================================
-  async clearSheet(range: string = "test") {
-    try {
-      await this.sheets.spreadsheets.values.clear({
-        spreadsheetId: this.spreadsheetId,
-        range,
-      });
-
-      console.log("🧹 Sheet cleared");
-    } catch (error) {
-      console.error("❌ clearSheet error:", error);
-    }
-  }
 }

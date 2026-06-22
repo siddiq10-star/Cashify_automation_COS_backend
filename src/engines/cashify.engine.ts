@@ -436,12 +436,7 @@ await questionEngine.answerAllQuestions();
   // =========================
 // UPDATE GOOGLE SHEET
 // =========================
-
-if (
-  rowIndex &&
-  requiredVariant &&
-  requiredVariant.includes(currentVariant.variant)
-)
+if (rowIndex && requiredVariant)
 {
 
   const sheet = new GoogleSheetsService();
