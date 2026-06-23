@@ -21,18 +21,8 @@ export class BrowserManager {
       "cashify-session.json"
     );
 
-    console.log(
-      "LOADING SESSION FROM:",
-      sessionPath
-    );
-
     const hasSession =
       fs.existsSync(sessionPath);
-
-    console.log(
-      "SESSION EXISTS:",
-      hasSession
-    );
 
     const context =
       await browser.newContext({
@@ -54,12 +44,7 @@ export class BrowserManager {
       cookies.find(
         c => c.name === "_cs__user_auth__v1"
       );
-
-    console.log(
-      "AUTH COOKIE FOUND:",
-      !!authCookie
-    );
-
+      
     const page =
       await context.newPage();
 

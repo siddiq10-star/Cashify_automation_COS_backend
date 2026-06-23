@@ -2,43 +2,31 @@ import { Page } from "playwright";
 import { Logger } from "../utils/logger";
 import { VariantEngine } from "./variant.engine";
 import { PricingEngine } from "./pricing.engine";
-import { QuestionEngine } from "./question.engine";
-import { DefectEngine } from "./defect.engine";
-import { AccessoryEngine } from "./accessory.engine";
-import { waitIfPaused }
-from "../utils/jobGuard";
+import { waitIfPaused } from "../utils/jobGuard";
 import { AgeEngine } from "./age.engine";
-import { GoogleSheetsService }
-from "../services/googleSheets.service";
+import { runInspectionFlow } from "../workflows/inspection.workflow";
+import { updateSheetPricing } from "../workflows/sheetUpdate.workflow";
 
 export class CashifyEngine {
-
   constructor(private page: Page) {}
 
-  
-
   async getPrice(
-  model: string,
-  requiredVariant?: string,
-  rowIndex?: number,
-  jobId?: string
-){
-
+    model: string,
+    requiredVariant?: string,
+    rowIndex?: number,
+    jobId?: string,
+  ) {
     try {
-
       Logger.info(`Searching ${model}`);
 
       // =========================
       // OPEN CASHIFY
       // =========================
 
-      await this.page.goto(
-        "https://www.cashify.in",
-        {
-          waitUntil: "domcontentloaded",
-          timeout: 60000,
-        }
-      );
+      await this.page.goto("https://www.cashify.in", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
 
       // =========================
       // WAIT PAGE LOAD
@@ -50,9 +38,9 @@ export class CashifyEngine {
       // CLICK SEARCH WRAPPER
       // =========================
 
-      const searchWrapper = this.page.locator(
-        'div.px-2.flex.flex-row.justify-center.items-center'
-      ).first();
+      const searchWrapper = this.page
+        .locator("div.px-2.flex.flex-row.justify-center.items-center")
+        .first();
 
       await searchWrapper.waitFor({
         state: "visible",
@@ -72,7 +60,7 @@ export class CashifyEngine {
       // =========================
 
       const activeInput = this.page.locator(
-        'input[placeholder*="Search"]:not([disabled])'
+        'input[placeholder*="Search"]:not([disabled])',
       );
 
       await activeInput.waitFor({
@@ -94,12 +82,9 @@ export class CashifyEngine {
       // TYPE MODEL
       // =========================
 
-      await this.page.keyboard.type(
-        model,
-        {
-          delay: 100,
-        }
-      );
+      await this.page.keyboard.type(model, {
+        delay: 100,
+      });
 
       Logger.success("Typing Complete");
 
@@ -109,27 +94,60 @@ export class CashifyEngine {
 
       await this.page.waitForTimeout(3000);
 
-      // DEBUG SCREENSHOT
-
-      await this.page.screenshot({
-        path: "dropdown-debug.png",
-        fullPage: true,
-      });
-
       // =========================
       // FIND SUGGESTION TEXT
       // =========================
 
-      const suggestionText = this.page.locator(
-        'span.subtitle8.text-primary-text-dark.line-clamp-3'
-      ).filter({
-        hasText: model,
-      }).first();
+      // =========================
+      // FIND BEST MATCHING SUGGESTION
+      // =========================
 
-      await suggestionText.waitFor({
+      const suggestionLocator = this.page.locator(
+        "span.subtitle8.text-primary-text-dark.line-clamp-3",
+      );
+
+      await suggestionLocator.first().waitFor({
         state: "visible",
         timeout: 15000,
       });
+
+      const count = await suggestionLocator.count();
+
+      console.log("🔍 TOTAL SUGGESTIONS:", count);
+
+      let bestIndex = -1;
+
+      const normalize = (text: string) => text.toLowerCase().trim();
+
+      const normalizeModel = (text: string) =>
+        text
+          .toLowerCase()
+          .replace(/\([^)]*\)/g, "")
+          .trim();
+
+      for (let i = 0; i < count; i++) {
+        const text =
+          (await suggestionLocator.nth(i).textContent())?.trim() || "";
+
+        console.log(`Suggestion ${i}:`, text);
+
+        const suggestionName = normalizeModel(text);
+
+        const targetName = normalizeModel(model);
+
+        if (suggestionName === targetName) {
+          bestIndex = i;
+          break;
+        }
+      }
+
+      if (bestIndex === -1) {
+        throw new Error(`Exact suggestion not found for: ${model}`);
+      }
+
+      console.log("✅ MATCHED SUGGESTION:", bestIndex);
+
+      const suggestionText = suggestionLocator.nth(bestIndex);
 
       Logger.success("Suggestion Text Found");
 
@@ -137,10 +155,9 @@ export class CashifyEngine {
       // CLICK ACTUAL ROW
       // =========================
 
-      const clickableRow =
-        suggestionText.locator(
-          "xpath=ancestor::span[contains(@class,'cursor-pointer')][1]"
-        );
+      const clickableRow = suggestionText.locator(
+        "xpath=ancestor::span[contains(@class,'cursor-pointer')][1]",
+      );
 
       await clickableRow.waitFor({
         state: "visible",
@@ -148,8 +165,6 @@ export class CashifyEngine {
       });
 
       Logger.success("Clickable Row Found");
-
-      // JS CLICK
 
       await clickableRow.evaluate((el: any) => {
         el.click();
@@ -163,379 +178,248 @@ export class CashifyEngine {
 
       await this.page.waitForTimeout(5000);
 
-
       Logger.success("Product Page Opened");
-      await waitIfPaused(jobId);
 
+      console.log("CURRENT URL:", this.page.url());
       // =========================
-// GET VARIANTS
-// =========================
+      // GET VARIANTS
+      // =========================
 
-const variantEngine =
-  new VariantEngine(this.page);
+      const variantEngine = new VariantEngine(this.page);
 
-const variants =
-  await variantEngine.getVariants();
+      let variants = await variantEngine.getVariants();
 
-  await waitIfPaused(jobId);
+      if (variants.length > 0) {
+        console.log("✅ VARIANT PAGE DETECTED");
+      } else {
+        console.log("✅ NO VARIANT PAGE DETECTED");
 
-if (!variants.length) {
-  throw new Error("No variants found");
-}
+        variants.push({
+          variant: requiredVariant,
+          href: null,
+        });
+      }
 
-const allVariantResults: any[] = [];
-
-for (const currentVariant of variants) {
-  try {
-    
-  if (requiredVariant) {
-
-  const normalize = (value: string) =>
-  value
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace("gb", "");
-
-const sheetVariant =
-  normalize(requiredVariant);
-
-const cashifyVariant =
-  normalize(currentVariant.variant);
-
-if (
-  sheetVariant.includes(cashifyVariant)
-) {
-  console.log(
-    "✅ MATCHED VARIANT:",
-    currentVariant.variant
-  );
-} else {
-  continue;
-}
-
-  console.log(
-    "✅ MATCHED VARIANT:",
-    cashifyVariant
-  );
-}
-
-  if (!currentVariant.href) {
-    continue;
-  }
-
-  Logger.info(
-    `Processing Variant: ${currentVariant.variant}`
-  );
-
-await this.page.waitForTimeout(2000);
-
-  const variantUrl =
-    `https://www.cashify.in${currentVariant.href}`;
-
-  console.log(
-    "🌐 OPENING VARIANT:",
-    variantUrl
-  );
-
-  await this.page.goto(
-    variantUrl,
-    {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    }
-  );
-
-  await this.page.waitForTimeout(4000);
-
-  Logger.success(
-    `Variant Opened: ${currentVariant.variant}`
-  );
-
-  const pricingEngine =
-  new PricingEngine(this.page);
-
-const maxValue =
-  await pricingEngine.getMaxValue();
-
-console.log(
-  "💰 MAX VALUE:",
-  maxValue
-);
-
-if (
-  maxValue === null ||
-  maxValue === undefined
-) {
-
-  console.log(
-    "❌ Max Value Not Found"
-  );
-
-  continue;
-}
-
-  const exactValueBtn =
-    this.page.locator(
-      'button:has-text("Get Exact Value")'
-    );
-
-  await exactValueBtn.waitFor({
-    state: "visible",
-    timeout: 15000,
-  });
-
-  await exactValueBtn.click({
-    force: true,
-  });
-
-  Logger.success(
-    "Get Exact Value Clicked"
-  );
-
-  const questionEngine =
-    new QuestionEngine(this.page);
-
-  await questionEngine.answerAllQuestions();
-  await waitIfPaused(jobId);
-
-  const defectEngine =
-    new DefectEngine(this.page);
-
-  await defectEngine.skipDefects();
-  await waitIfPaused(jobId);
-
-  const accessoryEngine =
-    new AccessoryEngine(this.page);
-
-  await accessoryEngine.selectAccessories();
-  await waitIfPaused(jobId);
-
-  const ageEngine =
-    new AgeEngine(this.page);
-
-  const ageCount =
-    await ageEngine.getAgeOptionsCount();
-
-  const ageLabels =
-    await ageEngine.getAgeLabels();
-
-  const ageResults: any[] = [];
-
-
-  // =========================
-  // NO AGE PAGE
-  // =========================
-
- if (ageCount === 0) {
-
-  Logger.info("No Age Page Found");
-
-  await this.page.waitForTimeout(5000);
-
-  const exactValue =
-  await pricingEngine.getExactValue();
-
-const difference =
-  maxValue - exactValue;
-
-console.log("NO AGE PAGE");
-console.log("MAX VALUE:", maxValue);
-console.log("EXACT VALUE:", exactValue);
-console.log("DIFFERENCE:", difference);
-
-ageResults.push({
-  age: "Above 11 months",
-  exactValue,
-  difference,
-});
-
-} else {
-
-    for (
-      let ageIndex = 0;
-      ageIndex < ageCount;
-      ageIndex++
-    ) {
-
-     if (ageIndex > 0) {
-
-  console.log(
-    "🔄 BEFORE RECALCULATE",
-    ageIndex + 1
-  );
-
- const recalculated =
-  await ageEngine.clickRecalculate();
-
-console.log(
-  "🔄 AFTER RECALCULATE",
-  recalculated
-);
-
-if (!recalculated) {
-
-  throw new Error(
-    `Failed to click Recalculate for age ${
-      ageIndex + 1
-    }`
-  );
-}
-
-await questionEngine.answerAllQuestions();
-
-  console.log(
-    "🔄 QUESTIONS DONE"
-  );
-
-  await defectEngine.skipDefects();
-
-  console.log(
-    "🔄 DEFECTS DONE"
-  );
-
-  await accessoryEngine.selectAccessories();
-
-  console.log(
-    "🔄 ACCESSORIES DONE"
-  );
-}
-
-      await ageEngine.selectAgeOption(
-        ageIndex
-      );
       await waitIfPaused(jobId);
 
-      await this.page.waitForTimeout(
-        5000
-      );
+      // If no variant page exists,
+      // treat current page as single variant model
 
-      const exactValue =
-        await pricingEngine.getExactValue();
+      if (!variants.length) {
+        console.log("✅ NO VARIANT PAGE FOUND");
 
-      const difference =
-  maxValue - exactValue;
+        variants = [
+          {
+            variant: requiredVariant || "Default",
+            href: null,
+          },
+        ];
+      }
 
-      ageResults.push({
+      console.log("📦 FINAL VARIANTS:", variants);
 
-        age:
-          ageLabels[ageIndex] ||
-          `Age ${ageIndex + 1}`,
+      const allVariantResults: any[] = [];
 
-        exactValue,
+      for (const currentVariant of variants) {
+        try {
+          if (requiredVariant) {
+            const normalizeVariant = (value: string) =>
+              value.toLowerCase().replace(/gb/g, "").replace(/\s+/g, "").trim();
 
-        difference,
-      });
+            const sheetVariant = normalizeVariant(requiredVariant);
 
-      console.log(
-        `AGE ${ageIndex + 1}`,
-        exactValue,
-        difference
-      );
-    }
-  }
-  // =========================
-// UPDATE GOOGLE SHEET
-// =========================
-if (rowIndex && requiredVariant)
-{
+            const cashifyVariant = normalizeVariant(currentVariant.variant);
 
-  const sheet = new GoogleSheetsService();
+            // Android variants
+            if (
+              sheetVariant === cashifyVariant ||
+              sheetVariant.includes(cashifyVariant) ||
+              cashifyVariant.includes(sheetVariant)
+            ) {
+              console.log("✅ MATCHED VARIANT:", currentVariant.variant);
+            } else {
+              continue;
+            }
+          }
 
-console.log("🔥 GOOGLE SHEET UPDATE START");
+          Logger.info(`Processing Variant: ${currentVariant.variant}`);
 
-const below3 =
-  ageResults.find(
-    a => a.age.includes("Below 3")
-  )?.difference ?? 0;
+          await this.page.waitForTimeout(2000);
 
-const mid3to6 =
-  ageResults.find(
-    a => a.age.includes("3 months - 6")
-  )?.difference ?? 0;
+          if (currentVariant.href) {
+            const variantUrl = `https://www.cashify.in${currentVariant.href}`;
 
-const mid6to11 =
-  ageResults.find(
-    a => a.age.includes("6 months - 11")
-  )?.difference ?? 0;
+            console.log("🌐 OPENING VARIANT:", variantUrl);
 
-const above11 =
-  ageResults.find(
-    a => a.age.includes("Above 11")
-  )?.difference ?? 0;
+            await this.page.goto(variantUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: 60000,
+            });
 
+            await this.page.waitForTimeout(4000);
+
+            console.log("✅ VARIANT PAGE OPENED");
+          } else {
+            console.log("✅ USING CURRENT PAGE (Single Variant)");
+          }
+
+          Logger.success(`Variant Opened: ${currentVariant.variant}`);
+
+          const pricingEngine = new PricingEngine(this.page);
+
+          const maxValue = await pricingEngine.getMaxValue();
+
+          console.log("💰 MAX VALUE:", maxValue);
+
+          if (maxValue === null || maxValue === undefined) {
+            console.log("❌ Max Value Not Found");
+
+            continue;
+          }
+
+          const exactValueBtn = this.page.locator(
+            'button:has-text("Get Exact Value")',
+          );
+
+          await exactValueBtn.waitFor({
+            state: "visible",
+            timeout: 15000,
+          });
+
+          await exactValueBtn.click({
+            force: true,
+          });
+
+          Logger.success("Get Exact Value Clicked");
+
+          await runInspectionFlow(this.page, jobId);
+
+          const ageEngine = new AgeEngine(this.page);
+
+          const ageCount = await ageEngine.getAgeOptionsCount();
+
+          const ageLabels = await ageEngine.getAgeLabels();
+
+          const ageResults: any[] = [];
+
+          // =========================
+          // NO AGE PAGE
+          // =========================
+
+          if (ageCount === 0) {
+            Logger.info("No Age Page Found");
+
+            await this.page.waitForTimeout(5000);
+
+            console.log(
+  "CURRENT URL:",
+  this.page.url()
+);
 
 console.log(
-  "AGE RESULTS:",
-  JSON.stringify(ageResults, null, 2)
-);
-await sheet.updatePricingRow(
-  rowIndex,
-  maxValue,
-  below3,
-  mid3to6,
-  mid6to11,
-  above11
+  "PAGE TITLE:",
+  await this.page.title()
 );
 
-console.log("WRITING TO SHEET:", {
-  rowIndex,
-  maxValue,
-  below3,
-  mid3to6,
-  mid6to11,
-  above11,
-});
+            const exactValue = await pricingEngine.getExactValue();
 
-console.log("🔥 GOOGLE SHEET UPDATE FINISHED");
-console.log(`✅ Sheet Updated Row ${rowIndex}`);
-}
+            const difference = maxValue - exactValue;
 
-allVariantResults.push({
-  variant: currentVariant.variant,
-  maxValue,
-  ageResults,
-});
+            console.log("NO AGE PAGE");
+            console.log("MAX VALUE:", maxValue);
+            console.log("EXACT VALUE:", exactValue);
+            console.log("DIFFERENCE:", difference);
 
-  console.log(
-    "✅ VARIANT COMPLETED:",
-    currentVariant.variant
-  );
-    } catch (err) {
-    console.log(
-      `❌ VARIANT FAILED: ${currentVariant.variant}`,
-      err
-    );
+            ageResults.push({
+              age: "Above 11 months",
+              exactValue,
+              difference,
+            });
+          } else {
+            for (let ageIndex = 0; ageIndex < ageCount; ageIndex++) {
+              if (ageIndex > 0) {
+                console.log("🔄 BEFORE RECALCULATE", ageIndex + 1);
 
-    continue;
-  }
-}
+                const recalculated = await ageEngine.clickRecalculate();
 
-if (!allVariantResults.length) {
-  return {
-    model,
-    variants: [],
-    status: "failed",
-    error: "No variants processed",
-  };
-}
+                console.log("🔄 AFTER RECALCULATE", recalculated);
 
-return {
-  model,
-  variants: allVariantResults,
-  status: "success",
-};
-} catch (err: any) {
+                if (!recalculated) {
+                  throw new Error(
+                    `Failed to click Recalculate for age ${ageIndex + 1}`,
+                  );
+                }
 
-  console.log("❌ CASHIFY ENGINE ERROR:", err);
+                await runInspectionFlow(this.page, jobId);
 
-  return {
-    model,
-    found: false,
-    status: "failed",
-    error: err.message,
-  };
-}
+                console.log("🔄 INSPECTION FLOW DONE");
+              }
 
-} // ⬅️ CLOSE getPrice()
+              await ageEngine.selectAgeOption(ageIndex);
+              await waitIfPaused(jobId);
 
-} // ⬅️ CLOSE CashifyEngine class
+              await this.page.waitForTimeout(5000);
+
+              const exactValue = await pricingEngine.getExactValue();
+
+              const difference = maxValue - exactValue;
+
+              ageResults.push({
+                age: ageLabels[ageIndex] || `Age ${ageIndex + 1}`,
+
+                exactValue,
+
+                difference,
+              });
+
+              console.log(`AGE ${ageIndex + 1}`, exactValue, difference);
+            }
+          }
+          // =========================
+          // UPDATE GOOGLE SHEET
+          // =========================
+
+          if (rowIndex && requiredVariant) {
+            await updateSheetPricing(rowIndex, maxValue, ageResults);
+          }
+
+          allVariantResults.push({
+            variant: currentVariant.variant,
+            maxValue,
+            ageResults,
+          });
+
+          console.log("✅ VARIANT COMPLETED:", currentVariant.variant);
+        } catch (err) {
+          console.log(`❌ VARIANT FAILED: ${currentVariant.variant}`, err);
+
+          continue;
+        }
+      } // CLOSE for loop
+
+      if (!allVariantResults.length) {
+        return {
+          model,
+          variants: [],
+          status: "failed",
+          error: "No variants processed",
+        };
+      }
+
+      return {
+        model,
+        variants: allVariantResults,
+        status: "success",
+      };
+    } catch (err: any) {
+      console.log("❌ CASHIFY ENGINE ERROR:", err);
+
+      return {
+        model,
+        found: false,
+        status: "failed",
+        error: err.message,
+      };
+    }
+  } // CLOSE getPrice()
+} // CLOSE CashifyEngine class

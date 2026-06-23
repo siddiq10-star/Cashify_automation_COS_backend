@@ -13,10 +13,7 @@ export const startSheetJob = async (
   const sheet = new GoogleSheetsService();
 
   const rows = await sheet.readModels();
-
-  console.log("FIRST ROW:");
-console.log(JSON.stringify(rows[0], null, 2));
-
+  
   Logger.info(`Loaded ${rows.length} rows from sheet`);
 
   const validRows = rows.filter((r) => {
